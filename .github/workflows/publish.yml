@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0   # full history, used for the dates shown in Plugin Manager
 
       - name: Check plugin metadata
-        run: python3 tools/build_repo.py check
+        run: python3 tools/build_repo.py check --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME"
 
       - name: Release new plugin versions
         env:

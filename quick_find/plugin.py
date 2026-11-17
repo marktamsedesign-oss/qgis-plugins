@@ -29,6 +29,7 @@ from .saved_pins import DEFAULT_GPKG as DEFAULT_PINS_GPKG, TITLE as PINS_TITLE, 
 from .saved_pins import count_in_file, is_any_pins_file, is_pins_layer, next_file, upgrade as upgrade_pins_layer
 from .save_group import group_file, is_top, layer_in, selected_group, where
 from .search import LARGE_LAYER, MAX_MATCHES, SearchCache, is_large, search, snippet
+from .updater import Updater
 
 MENU = "&Quick Find"
 SHORTCUT = "Ctrl+F"  # Qt maps Ctrl to Cmd on a Mac; change it in Settings > Keyboard Shortcuts
@@ -158,8 +159,11 @@ class QuickFindPlugin:
         QgsProject.instance().layersWillBeRemoved.connect(self._layers_removed)
         QgsProject.instance().layersAdded.connect(self._project_layers_added)
         self._project_layers_added(QgsProject.instance().mapLayers().values())
+        self.updater = Updater(self.iface, MENU)  # update messages + Check for updates…
+        self.updater.start()
 
     def unload(self):
+        self.updater.stop()
         QgsProject.instance().layersWillBeRemoved.disconnect(self._layers_removed)
         QgsProject.instance().layersAdded.disconnect(self._project_layers_added)
         self.cache.clear()

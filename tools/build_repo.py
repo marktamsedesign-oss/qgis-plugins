@@ -5,7 +5,8 @@ Every top-level folder that contains a metadata.txt is treated as one plugin.
 Standard library only, so it runs on any GitHub runner (or your own computer).
 
 Commands
-    check                         validate every plugin's metadata.txt
+    check [--repo OWNER/NAME] [--branch main]
+                                  validate every plugin's metadata.txt and updater.py
     list                          print "<folder> <version>" per plugin
     zip  <folder> <out_dir>       build <out_dir>/<folder>.<version>.zip
     notes <folder>                print release notes (changelog or a default line)
@@ -21,6 +22,10 @@ Rules that matter to QGIS (checked against QGIS's pyplugin_installer source):
   * If <qgis_maximum_version> is missing QGIS assumes "<min major>.99"
     (e.g. 3.99), which hides the plugin on QGIS 4, so it is always written.
   * Release tag per plugin version: "<folder>-v<version>".
+
+updater.py (the in-plugin update check) is the same file in every plugin folder;
+`check` fails if the copies differ, and with --repo also if its REPO_URL is not
+this repository's plugins.xml.
 """
 
 import argparse
@@ -89,7 +94,31 @@ def is_bool_true(value: str) -> bool:
 
 
 # --------------------------------------------------------------------------- commands
-def cmd_check(_args):
+def check_updaters(folders, args, problems, warnings):
+    copies = {f.name: (f / "updater.py").read_bytes() for f in folders if (f / "updater.py").is_file()}
+    for f in folders:
+        if f.name not in copies:
+            warnings.append(f"{f.name}: no updater.py, so its users get no update messages "
+                            "(copy it from another plugin folder)")
+    if not copies:
+        return
+    if len(set(copies.values())) > 1:
+        groups = {}
+        for name, data in copies.items():
+            groups.setdefault(data, []).append(name)
+        listing = "; ".join(", ".join(names) for names in groups.values())
+        problems.append(f"updater.py differs between plugin folders ({listing}); "
+                        "edit one and copy it to the others")
+    if getattr(args, "repo", None):
+        expected = f"https://raw.githubusercontent.com/{args.repo}/{args.branch}/plugins.xml"
+        for name, data in sorted(copies.items()):
+            m = re.search(r'^REPO_URL = "([^"]*)"', data.decode("utf-8", "replace"), re.M)
+            if not m or m.group(1) != expected:
+                problems.append(f"{name}/updater.py: REPO_URL is {m.group(1) if m else 'missing'}, "
+                                f"but this repository publishes {expected}")
+
+
+def cmd_check(args):
     problems, warnings = [], []
     folders = plugin_folders()
     if not folders:
@@ -114,6 +143,7 @@ def cmd_check(_args):
         icon = md.get("icon")
         if icon and not (folder / icon).is_file():
             warnings.append(f"{n}: icon '{icon}' not found in the folder")
+    check_updaters(folders, args, problems, warnings)
     for w in warnings:
         print("WARNING:", w)
     for p in problems:
@@ -227,7 +257,10 @@ def cmd_xml(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("check").set_defaults(func=cmd_check)
+    c = sub.add_parser("check")
+    c.add_argument("--repo", help="OWNER/NAME: also check updater.py's REPO_URL against it")
+    c.add_argument("--branch", default="main")
+    c.set_defaults(func=cmd_check)
     sub.add_parser("list").set_defaults(func=cmd_list)
     z = sub.add_parser("zip")
     z.add_argument("folder")

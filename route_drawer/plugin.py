@@ -41,6 +41,7 @@ from .pushpin import pushpin_symbol
 from .save_dialog import COLOR_COLUMNS, REMARKS_COLUMNS, ask as ask_save_window, find_column
 from .save_group import add_to, group_file, is_top, layer_in, selected_group, where
 from .storage import new_field
+from .updater import Updater
 
 MENU = "&Route Drawer"
 LAYER_NAME = "drawn_routes"
@@ -165,8 +166,11 @@ class RouteDrawerPlugin:
         QgsProject.instance().layersWillBeRemoved.connect(self._layers_removed)
         QgsProject.instance().layersAdded.connect(self._project_layers_added)
         self._project_layers_added(QgsProject.instance().mapLayers().values())
+        self.updater = Updater(self.iface, MENU)  # update messages + Check for updates…
+        self.updater.start()
 
     def unload(self):
+        self.updater.stop()
         QgsProject.instance().layersWillBeRemoved.disconnect(self._layers_removed)
         QgsProject.instance().layersAdded.disconnect(self._project_layers_added)
         if self.boundary_panel is not None:
