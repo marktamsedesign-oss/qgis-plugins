@@ -1,0 +1,75 @@
+# Publishes every plugin folder in this repo as a QGIS plugin repository.
+#
+# You only ever do this:  change code -> bump "version=" in <plugin>/metadata.txt -> push.
+# For each plugin whose version has no release yet, this workflow:
+#   1. zips the folder as <folder>.<version>.zip
+#   2. creates a GitHub Release tagged <folder>-v<version> with that zip
+#   3. regenerates plugins.xml (the file QGIS reads) and commits it to this branch
+# QGIS then shows the plugin as "upgradeable" the next time it checks this repository.
+
+name: Publish QGIS plugins
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "plugins.xml"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create releases and commit plugins.xml
+
+concurrency:
+  group: publish-qgis-plugins
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history, used for the dates shown in Plugin Manager
+
+      - name: Check plugin metadata
+        run: python3 tools/build_repo.py check
+
+      - name: Release new plugin versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 tools/build_repo.py list > plugins.lst
+          while read -r plugin version; do
+            tag="${plugin}-v${version}"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "= $tag already released, skipping"
+              continue
+            fi
+            echo "+ releasing $tag"
+            zip_path="$(python3 tools/build_repo.py zip "$plugin" dist)"
+            python3 tools/build_repo.py notes "$plugin" > notes.md
+            gh release create "$tag" "$zip_path" \
+              --title "$plugin $version" \
+              --notes-file notes.md \
+              --target "$GITHUB_SHA"
+          done < plugins.lst
+
+      - name: Update plugins.xml
+        run: |
+          set -euo pipefail
+          python3 tools/build_repo.py xml \
+            --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" --out plugins.xml
+          git add plugins.xml
+          if git diff --cached --quiet; then
+            echo "plugins.xml unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update plugins.xml [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
